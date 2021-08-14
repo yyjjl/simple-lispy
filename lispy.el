@@ -8714,34 +8714,6 @@ FUNC is obtained from (`lispy--insert-or-call' DEF PLIST)."
     (eldoc-add-command func)
     (define-key keymap (kbd key) func)))
 
-(lispy-defverb
- "goto"
- (("d" lispy-goto)
-  ("l" lispy-goto-local)
-  ("r" lispy-goto-recursive)
-  ("p" lispy-goto-project)
-  ("f" lispy-follow)
-  ("b" pop-tag-mark)
-  ("q" lispy-quit)
-  ("j" lispy-goto-def-down)
-  ("a" lispy-goto-def-ace)
-  ("e" lispy-goto-elisp-commands)))
-
-(lispy-defverb
- "other"
- (("h" lispy-move-left)
-  ("j" lispy-down-slurp)
-  ("k" lispy-up-slurp)
-  ("l" lispy-move-right)
-  ("SPC" lispy-other-space)
-  ("g" lispy-goto-mode)))
-
-(defhydra lh-knight ()
-  "knight"
-  ("j" lispy-knight-down)
-  ("k" lispy-knight-up)
-  ("z" nil))
-
 (defvar lispy-mode-map-special
   (let ((map (make-sparse-keymap)))
     ;; navigation
@@ -8751,10 +8723,8 @@ FUNC is obtained from (`lispy--insert-or-call' DEF PLIST)."
     (lispy-define-key map "j" 'lispy-down)
     (lispy-define-key map "k" 'lispy-up)
     (lispy-define-key map "d" 'lispy-different)
-    (lispy-define-key map "o" 'lispy-other-mode)
     (lispy-define-key map "p" 'lispy-eval-other-window)
     (lispy-define-key map "P" 'lispy-paste)
-    (lispy-define-key map "z" 'lh-knight/body)
     ;; outline
     (lispy-define-key map "J" 'lispy-outline-next)
     (lispy-define-key map "K" 'lispy-outline-prev)
@@ -8843,7 +8813,6 @@ FUNC is obtained from (`lispy--insert-or-call' DEF PLIST)."
 (defvar lispy-mode-map-c-digits
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "C-3") 'lispy-right)
-    (define-key map (kbd "C-4") 'lispy-x)
     (define-key map (kbd "C-7") 'lispy-cursor-down)
     (define-key map (kbd "C-8") 'lispy-parens-down)
     (define-key map (kbd "C-9") 'lispy-out-forward-newline)
