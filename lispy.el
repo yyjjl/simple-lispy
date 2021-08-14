@@ -3583,15 +3583,13 @@ When you press \"t\" in `lispy-teleport', this will be bound to t temporarily.")
 
 (define-error 'eval-error "Eval error")
 
-(defun lispy-eval (arg)
+(defun lispy-eval ()
   "Eval the current sexp and display the result.
 When ARG is 2, insert the result as a comment."
-  (interactive "p")
+  (interactive)
   (setq lispy-eval-output nil)
   (condition-case e
       (let ((res (lispy--eval nil)))
-        (when (memq major-mode lispy-clojure-modes)
-          (setq res (lispy--clojure-pretty-string res)))
         (when lispy-eval-output
           (setq res (concat lispy-eval-output res)))
         (lispy-message res))
@@ -3760,7 +3758,7 @@ When ARG is non-nil, force select the window."
     (cond ((memq major-mode '(lisp-mode scheme-mode))
            (lispy-message (lispy--eval (prin1-to-string expr))))
           ((memq major-mode lispy-clojure-modes)
-           (lispy-eval 1))
+           (lispy-eval))
           (t
            (with-selected-window target-window
              (setq res (lispy--eval-elisp-form expr lexical-binding)))
