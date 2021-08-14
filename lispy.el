@@ -289,16 +289,13 @@ The hint will consist of the possible nouns that apply to the verb."
 (defvar lispy-ignore-whitespace nil
   "When set to t, function `lispy-right' will not clean up whitespace.")
 
-(defcustom lispy-compat '(edebug)
+(defcustom lispy-compat '(macrostep magit-blame-mode)
   "List of package compatibility options.
 Enabling them adds overhead, so make sure that you are actually
 using those packages."
   :type '(repeat
           (choice
-           (const :tag "god-mode" god-mode)
            (const :tag "magit-blame-mode" magit-blame-mode)
-           (const :tag "edebug" edebug)
-           (const :tag "cider" cider)
            (const :tag "macrostep" macrostep))))
 
 (defvar-local lispy-old-outline-settings nil
@@ -5303,112 +5300,6 @@ Macro used may be customized in `lispy-thread-last-macro', which see."
    (lispy-flow 1)
    (lispy-raise 1)))
 
-(defun lispy-unbind-variable ()
-  "Substitute let-bound variable."
-  (interactive)
-  (if (memq major-mode lispy-clojure-modes)
-      (lispy-unbind-variable-clojure)
-    (let ((inhibit-message t)
-          beg end)
-      (require 'iedit)
-      (save-excursion
-        (lispy--out-backward 2)
-        (setq beg (point))
-        (forward-list 1)
-        (setq end (point)))
-      (forward-char 1)
-      (iedit-start (iedit-regexp-quote (lispy--string-dwim)) beg end)
-      (lispy-mark-symbol)
-      (lispy-move-down 1)
-      (iedit-mode)
-      (deactivate-mark)
-      (lispy-left 1)
-      (lispy-delete 1)
-      (when (looking-at "[ \n]*")
-        (delete-region (match-beginning 0)
-                       (match-end 0)))
-      (lispy--out-backward 1)
-      (forward-char 1)
-      (if (looking-at ")")
-          (progn
-            (lispy--out-backward 1)
-            (lispy-down 1)
-            (lispy-raise-some))
-        (save-excursion
-          (lispy--out-backward 2)
-          (lispy--normalize-1)))
-      (undo-boundary))))
-
-(defun lispy-unbind-variable-clojure ()
-  "Subsititute let-bound variable in Clojure."
-  (interactive)
-  (require 'iedit)
-  (deactivate-mark)
-  (lispy-flet (message (&rest _x))
-    (iedit-mode 0))
-  (lispy-mark-symbol)
-  (lispy-move-down 1)
-  (iedit-mode)
-  (exchange-point-and-mark)
-  (lispy-slurp 1)
-  (delete-active-region)
-  (deactivate-mark)
-  (lispy--out-backward 2)
-  (lispy--normalize-1)
-  (lispy-flow 1))
-
-(defun lispy--bind-variable-kind ()
-  (save-excursion
-    (catch 'break
-      (while (not (bolp))
-        (lispy-left 1)
-        (cond ((lispy-looking-back "(let\\*? ")
-               (throw 'break 'let-binding))
-              ((looking-at "(let\\([*]?\\)")
-               (throw 'break 'let-body))))
-      'no-let)))
-
-(defun lispy-bind-variable ()
-  "Bind current expression as variable.
-
-`lispy-map-done' is used to finish entering the variable name.
-The bindings of `lispy-backward' or `lispy-mark-symbol' can also be used."
-  (interactive)
-  (let* ((bnd (lispy--bounds-dwim))
-         (str (lispy--string-dwim bnd))
-         (kind (lispy--bind-variable-kind))
-         (fmt (if (eq major-mode 'clojure-mode)
-                  '("(let [ %s]\n)" . 6)
-                '("(let (( %s))\n)" . 7))))
-    (setq lispy-bind-var-in-progress t)
-    (deactivate-mark)
-    (lispy-map-delete-overlay)
-    (delete-region (car bnd) (cdr bnd))
-    (cond ((eq kind 'let-binding)
-           (let ((lispy-ignore-whitespace t))
-             (while (not (lispy-bolp))
-               (lispy-left 1)))
-           (when (looking-at "(let")
-             (lispy-flow 2))
-           (let ((new-binding
-                  (concat
-                   "( " str ")\n"
-                   (make-string (current-column) ?\ ))))
-             (save-excursion
-               (insert new-binding))
-             (setq lispy-map-target-beg (1+ (point)))
-             (goto-char (+ (car bnd) (length new-binding)))))
-          (t
-           (insert (format (car fmt) str))
-           (goto-char (car bnd))
-           (indent-sexp)
-           (forward-sexp)
-           (setq lispy-map-target-beg (+ (car bnd) (cdr fmt)))
-           (backward-char 1)))
-    (setq lispy-map-target-len 0)
-    (setq lispy-map-format-function 'identity)
-    (lispy-map-make-input-overlay (point) (point))))
-
 ;;* Locals: multiple cursors
 (declare-function mc/create-fake-cursor-at-point "ext:multiple-cursors-core")
 (declare-function multiple-cursors-mode "ext:multiple-cursors-core")
@@ -5785,7 +5676,6 @@ An equivalent of `cl-destructuring-bind'."
                          :columns 3)
   "x"
   ;; ("a" nil)
-  ("b" lispy-bind-variable "bind variable")
   ("c" lispy-to-cond "to cond")
   ("C" lispy-cleanup "cleanup")
   ("d" lispy-to-defun "to defun")
@@ -5807,7 +5697,6 @@ An equivalent of `cl-destructuring-bind'."
   ("r" lispy-eval-and-replace "eval and replace")
   ("s" save-buffer)
   ("t" lispy-view-test "view test")
-  ("u" lispy-unbind-variable "unbind let-var")
   ("v" lispy-eval-expression "eval")
   ("w" lispy-show-top-level "where")
   ;; ("x" nil)
@@ -5815,7 +5704,6 @@ An equivalent of `cl-destructuring-bind'."
   ;; ("z" nil)
   ("B" lispy-store-region-and-buffer "store list bounds")
   ("R" lispy-reverse "reverse")
-  ("T" lispy-ert "ert")
   (">" lispy-toggle-thread-last "toggle last-threaded form")
   ("" lispy-x-more-verbosity :exit nil)
   ("?" lispy-x-more-verbosity "help" :exit nil))
@@ -5857,11 +5745,6 @@ An equivalent of `cl-destructuring-bind'."
   (interactive)
   (hydra-set-property 'hydra-lispy-x :verbosity lispy-x-default-verbosity)
   (hydra-lispy-x/body))
-
-(defun lispy-ert ()
-  "Call (`ert' t)."
-  (interactive)
-  (ert t))
 
 (defun lispy-undo ()
   "Deactivate region and `undo'."
