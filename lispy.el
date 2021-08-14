@@ -2103,18 +2103,6 @@ to all the functions, while maintaining the parens in a pretty state."
     (delete-region (car bnd) (cdr bnd))
     (insert (replace-regexp-in-string "\n" "\\\\n" str))))
 
-(defun lispy-iedit (&optional arg)
-  "Wrap around `iedit'."
-  (interactive "P")
-  (require 'iedit)
-  (if iedit-mode
-      (iedit-mode nil)
-    (when (lispy-left-p)
-      (forward-char 1))
-    (if arg
-        (iedit-mode 0)
-      (iedit-mode))))
-
 ;;* Locals: Paredit transformations
 (defun lispy--sub-slurp-forward (arg)
   "Grow current marked symbol by ARG words forwards.
@@ -4655,9 +4643,6 @@ Sexp is obtained by exiting the list ARG times."
           (lispy--ensure-visible))
       (lispy-complain "This outline has no children"))))
 
-(declare-function iedit-regexp-quote "iedit")
-(declare-function iedit-start "iedit")
-
 (declare-function org-back-to-heading "org")
 (declare-function org-end-of-subtree "org")
 (declare-function org-at-heading-p "org")
@@ -5159,7 +5144,6 @@ An equivalent of `cl-destructuring-bind'."
   ("h" lispy-describe "describe")
   ("i" lispy-to-ifs "to ifs")
   ("j" lispy-debug-step-in "debug step in")
-  ("k" lispy-extract-block "extract block")
   ("l" lispy-to-lambda "to lambda")
   ("n" lispy-cd)
   ;; ("q" nil)
@@ -5244,14 +5228,6 @@ X is an item of a radio- or choice-type defcustom."
                 (list 'quote x)
               x)))))
 
-(unless (fboundp 'macrop)
-  (defun macrop (object)
-    "Non-nil if and only if OBJECT is a macro."
-    (let ((def (indirect-function object)))
-      (when (consp def)
-        (or (eq 'macro (car def))
-            (and (autoloadp def) (memq (nth 4 def) '(macro t))))))))
-
 (defalias 'lispy--preceding-sexp
     (if (fboundp 'elisp--preceding-sexp)
         'elisp--preceding-sexp
@@ -5323,110 +5299,6 @@ When ARG is given, paste at that place in the current list."
          (insert (lispy--maybe-safe-current-kill)))
         (t
          (insert (lispy--maybe-safe-current-kill)))))
-
-(defalias 'lispy-font-lock-ensure
-  (if (fboundp 'font-lock-ensure)
-      'font-lock-ensure
-    'font-lock-fontify-buffer))
-
-(defun lispy-map-done ()
-  (interactive)
-  (lispy-map-delete-overlay)
-  (setq lispy-bind-var-in-progress nil)
-  (lispy-backward 1))
-
-(defvar lispy-map-keymap
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "[") #'lispy-map-done)
-    (define-key map (kbd "<return>") #'lispy-map-done)
-    map)
-  "The input overlay keymap for `lispy-extract-block'.")
-
-(defun lispy-map-make-input-overlay (beg end)
-  "Set `lispy-map-input-overlay' to an overlay from BEG to END.
-This overlay will automatically extend with modifications.
-
-Each modification inside `lispy-map-input-overlay' will update the
-area between `lispy-map-target-beg' and `lispy-map-target-len'."
-  (when (overlayp lispy-map-input-overlay)
-    (delete-overlay lispy-map-input-overlay))
-  (let ((ov (make-overlay beg end (current-buffer) nil t)))
-    (overlay-put ov 'face 'iedit-occurrence)
-    (overlay-put ov 'insert-in-front-hooks '(lispy-map--overlay-update-hook))
-    (overlay-put ov 'insert-behind-hooks '(lispy-map--overlay-update-hook))
-    (overlay-put ov 'modification-hooks '(lispy-map--overlay-update-hook))
-    (overlay-put ov 'priority 200)
-    (overlay-put ov 'keymap lispy-map-keymap)
-    (setq lispy-map-input-overlay ov)))
-
-(defun lispy-map-delete-overlay ()
-  "Delete `lispy-map-input-overlay'."
-  (when (overlayp lispy-map-input-overlay)
-    (delete-overlay lispy-map-input-overlay)))
-
-(defun lispy-map-format-function-extract-block (str)
-  (let* ((fun-and-args (read (format "(%s)" str)))
-         (args (cdr fun-and-args)))
-    (format "%S %s"
-            (car fun-and-args)
-            (if (memq major-mode lispy-clojure-modes)
-                (if args
-                    (format
-                     "[%s]"
-                     (substring (prin1-to-string args)
-                                1 -1))
-                  "[]")
-              (if args
-                  (prin1-to-string args)
-                "()")))))
-
-(defun lispy-map--overlay-update-hook (_occurrence _after _beg _end &optional change)
-  (when change
-    (let* ((inhibit-modification-hooks t)
-           (ovl-beg (overlay-start lispy-map-input-overlay))
-           (ovl-end (overlay-end lispy-map-input-overlay))
-           (str (buffer-substring-no-properties ovl-beg ovl-end)))
-      (save-excursion
-        (goto-char
-         (+ lispy-map-target-beg
-            (if (> lispy-map-target-beg ovl-beg)
-                (- ovl-end ovl-beg)
-              0)))
-        (delete-char lispy-map-target-len)
-        (let ((new-str (funcall lispy-map-format-function str)))
-          (insert new-str)
-          (setq lispy-map-target-len (length new-str)))))))
-
-(defun lispy-extract-block ()
-  "Transform the current sexp or region into a function call.
-The newly generated function will be placed above the current function.
-Starts the input for the new function name and arguments.
-To finalize this input, press \"[\"."
-  (interactive)
-  (lispy-map-delete-overlay)
-  (let* ((bnd (lispy--bounds-dwim))
-         (str (lispy--string-dwim bnd)))
-    (undo-boundary)
-    (delete-region (car bnd) (cdr bnd))
-    (insert "()")
-    (backward-char)
-    (lispy-map-make-input-overlay (point) (point))
-    (setq lispy-map-format-function 'lispy-map-format-function-extract-block)
-    (save-excursion
-      (lispy-beginning-of-defun)
-      (save-excursion
-        (insert
-         (if (memq major-mode lispy-clojure-modes)
-             "(defn a []\n"
-           "(defun a ()\n")
-         str
-         ")\n\n"))
-      (indent-sexp)
-      (forward-char 1)
-      (forward-sexp 2)
-      (delete-char -1)
-      (setq lispy-map-target-beg (point))
-      (setq lispy-map-target-len 3))))
 
 ;;* Predicates
 (defun lispy--in-string-p ()
@@ -7795,7 +7667,6 @@ FUNC is obtained from (`lispy--insert-or-call' DEF PLIST)."
     (define-key map (kbd "<M-return>") 'lispy-meta-return)
     (define-key map (kbd "M-RET") 'lispy-meta-return)
     ;; misc
-    (define-key map (kbd "M-i") 'lispy-iedit)
     (define-key map (kbd "<backtab>") 'lispy-shifttab)
     ;; outline
     (define-key map (kbd "M-<left>") 'lispy-outline-demote)
