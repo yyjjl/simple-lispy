@@ -152,22 +152,6 @@
   "Forward to (`looking-back' REGEXP)."
   (looking-back regexp (line-beginning-position)))
 
-;;* Locals: extract block
-(defvar lispy-map-input-overlay nil
-  "The input overlay for mapping transformations.")
-
-(defvar lispy-map-target-beg 1
-  "The target start for mapping transformations.")
-
-(defvar lispy-map-target-len 1
-  "The target end for mapping transformations.")
-
-;; TODO: Should this be suspect to comment-char handling as well?
-(defvar-local lispy-outline-header ";;"
-  "Store the buffer-local outline start.")
-
-(defvar lispy-map-format-function nil)
-
 ;;* Customization
 (defgroup lispy nil
   "List navigation and editing for the Lisp family."
@@ -1460,20 +1444,11 @@ When ARG is more than 1, mark ARGth element."
          (lispy--mark (lispy--bounds-comment))))
   (setq this-command 'lispy-mark-list))
 
-(defvar-local lispy-bind-var-in-progress nil
-  "When t, `lispy-mark-symbol' will exit `iedit'.")
-
 (defun lispy-mark-symbol ()
   "Mark current symbol."
   (interactive)
   (let (bnd)
-    (cond (lispy-bind-var-in-progress
-           (lispy-map-done)
-           (setq lispy-bind-var-in-progress nil)
-           (forward-sexp 2)
-           (lispy-mark-symbol))
-
-          ((lispy--in-comment-p)
+    (cond ((lispy--in-comment-p)
            (if (and (looking-at "\\(?:\\w\\|\\s_\\)*'")
                     (setq bnd (match-end 0))
                     (looking-back "`\\(?:\\w\\|\\s_\\)*"
@@ -3851,12 +3826,6 @@ When you press \"t\" in `lispy-teleport', this will be bound to t temporarily.")
              (lispy--teleport beg end endp regionp))))))
 
 ;;* Locals: dialect-related
-(defcustom lispy-eval-display-style 'message
-  "Choose a function to display the eval result."
-  :type '(choice
-          (const :tag "message" message)
-          (const :tag "overlay" overlay)))
-
 (defvar lispy-eval-alist
   `((,lispy-elisp-modes lispy lispy--eval-elisp)
     ((,@lispy-clojure-modes nrepl-repl-mode cider-clojure-interaction-mode)
@@ -3876,9 +3845,6 @@ When you press \"t\" in `lispy-teleport', this will be bound to t temporarily.")
 
 (defvar lispy-eval-output nil
   "The eval function may set this when there's output.")
-
-(declare-function cider--display-interactive-eval-result "ext:cider-overlays")
-(declare-function eros--eval-overlay "ext:eros")
 
 (define-error 'eval-error "Eval error")
 
@@ -3900,18 +3866,7 @@ When at an outline, eval the outline."
                  (setq res (lispy--clojure-pretty-string res)))
                (when lispy-eval-output
                  (setq res (concat lispy-eval-output res)))
-               (cond ((eq lispy-eval-display-style 'message)
-                      (lispy-message res))
-                     ((or (fboundp 'cider--display-interactive-eval-result)
-                          (require 'cider nil t))
-                      (cider--display-interactive-eval-result
-                       res (cdr (lispy--bounds-dwim))))
-                     ((or (fboundp 'eros--eval-overlay)
-                          (require 'eros nil t))
-                      (eros--eval-overlay
-                       res (cdr (lispy--bounds-dwim))))
-                     (t
-                      (error "Please install CIDER >= 0.10 or eros to display overlay"))))))
+               (lispy-message res))))
     (eval-error
      (lispy-message (cdr e)))))
 
