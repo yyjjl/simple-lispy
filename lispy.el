@@ -258,19 +258,6 @@ These messages are similar to \"Beginning of buffer\" error for
   "Face for Elisp commands."
   :group 'lispy-faces)
 
-(defface lispy-cursor-face
-  '((((class color) (background light))
-     :background "#000000" :foreground "#ffffff")
-    (((class color) (background dark))
-     :background "#ffffff" :foreground "#000000"))
-  "Face for `lispy-view-test'."
-  :group 'lispy-faces)
-
-(defface lispy-test-face
-  '((t (:inherit lispy-face-hint)))
-  "Face for `lispy-view-test'."
-  :group 'lispy-faces)
-
 (defvar lispy-mode-map (make-sparse-keymap))
 
 (defvar lispy-ignore-whitespace nil
@@ -5354,7 +5341,6 @@ An equivalent of `cl-destructuring-bind'."
   ;; ("q" nil)
   ("r" lispy-eval-and-replace "eval and replace")
   ("s" save-buffer)
-  ("t" lispy-view-test "view test")
   ("v" lispy-eval-expression "eval")
   ("w" lispy-show-top-level "where")
   ;; ("x" nil)
@@ -5518,129 +5504,6 @@ When ARG is given, paste at that place in the current list."
   (if (fboundp 'font-lock-ensure)
       'font-lock-ensure
     'font-lock-fontify-buffer))
-
-(defun lispy--fontify (str mode)
-  "Return STR fontified in MODE."
-  (with-temp-buffer
-    (funcall mode)
-    (show-paren-mode)
-    (insert str)
-    (lispy-font-lock-ensure)
-    (let ((color-paren (face-attribute 'show-paren-match :background))
-          (color-cursor-fg (face-attribute 'lispy-cursor-face :foreground))
-          (color-cursor-bg (face-attribute 'lispy-cursor-face :background))
-          pt mk p1 p2)
-      (goto-char (point-min))
-      (when (search-forward "|" nil t)
-        (backward-delete-char 1)
-        (setq pt (point))
-        (when (< (- (line-end-position) pt) 2)
-          (end-of-line)
-          (insert "  ")))
-      (goto-char (point-min))
-      (when (search-forward "~" nil t)
-        (backward-delete-char 1)
-        (setq mk (point))
-        (when (< mk pt)
-          (cl-decf pt)))
-      (if pt
-          (progn
-            (goto-char pt)
-            (cond ((lispy-right-p)
-                   (setq p2 (1- (point)))
-                   (lispy-different)
-                   (setq p1 (point)))
-                  ((lispy-left-p)
-                   (setq p1 (point))
-                   (lispy-different)
-                   (setq p2 (1- (point)))))
-            (when p2
-              (save-excursion
-                (goto-char p2)
-                (when (< (- (line-end-position) p2) 2)
-                  (end-of-line)
-                  (insert " "))))
-            (setq str (buffer-string))
-            (add-face-text-property 0 (length str) '(face 'lispy-test-face) t str)
-            (when mk
-              (if (< mk pt)
-                  (progn
-                    (add-text-properties (1- mk) (1- pt) '(face region) str)
-                    (set-text-properties (1- pt) pt '(face cursor) str))
-                (add-text-properties (1- (min pt mk)) (1- (max pt mk)) '(face region) str)
-                (set-text-properties (1- pt) pt '(face cursor) str)))
-            (when p1
-              (add-text-properties
-               (1- p1) p1
-               `(face (:background
-                       ,color-paren
-                       :foreground
-                       ,(if (and mk
-                                 (>= p1 (min pt mk))
-                                 (<= p1 (max pt mk)))
-                            color-cursor-fg
-                          color-cursor-bg))) str))
-            (when p2
-              (add-text-properties
-               (1- p2) p2
-               `(face (:background
-                       ,color-paren
-                       :foreground
-                       ,(if (and mk
-                                 (>= p2 (min pt mk))
-                                 (<= p2 (max pt mk)))
-                            color-cursor-fg
-                          color-cursor-bg)))
-               str))
-            (add-text-properties
-             (1- pt) pt
-             `(face (:background
-                     ,color-cursor-bg
-                     :foreground
-                     ,(if (eq pt p1)
-                          color-paren
-                        color-cursor-fg)))
-             str)
-            str)
-        str))))
-
-(defun lispy-view-test ()
-  "View better the test at point."
-  (interactive)
-  (cond ((and (overlayp lispy-overlay)
-              (eq (point) (get 'lispy-overlay 'last-point)))
-         (delete-overlay lispy-overlay)
-         (setq lispy-overlay nil))
-
-        ((looking-at "(should (\\(?:string=\\|equal\\)")
-         (setq lispy-hint-pos (point))
-         (let* ((expr (cadr (read (lispy--string-dwim))))
-                (str1 (cadr (cadr expr)))
-                (str2 (cl-caddr expr))
-                (keys (cl-cddadr expr))
-                (keys (if (and (= (length keys) 1)
-                               (consp (car keys))
-                               (eq (caar keys) 'execute-kbd-macro))
-                          (cl-cadar keys)
-                        keys))
-                (sep (make-string (- (window-width)
-                                     (current-column)) ?-))
-                (mode (if (looking-at "[^\n]*(lispy-with clojure")
-                          'clojure-mode
-                        'emacs-lisp-mode)))
-           (lispy--show
-            (concat "\n"
-                    (lispy--fontify str1 mode)
-                    "\n" sep "\n"
-                    (substring (prin1-to-string keys) 1 -1)
-                    "\n" sep "\n"
-                    (lispy--fontify (if (stringp str2)
-                                        str2
-                                      (prin1-to-string str2)) mode)
-                    "\n"))))
-
-        (t
-         (lispy-complain "should position point before (should (string="))))
 
 (defun lispy-map-done ()
   (interactive)
@@ -7899,21 +7762,6 @@ Return a cons of the new text cordinates."
         (when pos
           (goto-char pos))))))
 
-(defvar ediff-temp-indirect-buffer)
-(defun lispy--make-ediff-buffer (buffer ext bnd)
-  "Create a copy of BUFFER with EXT added to the name.
-Use only the part bounded by BND."
-  (cl-multiple-value-bind (name mode str)
-      (with-current-buffer buffer
-        (list (concat (buffer-name) ext) major-mode (lispy--string-dwim bnd)))
-    (with-current-buffer (get-buffer-create name)
-      (funcall mode)
-      (insert str "\n")
-      (indent-region (point-min) (point-max))
-      (require 'ediff-init)
-      (setq ediff-temp-indirect-buffer t)
-      (list (current-buffer) (point-min) (point-max)))))
-
 (defvar macrostep-keymap)
 (defvar lispy--compat-cmd nil
   "Store the looked up compat command.")
@@ -8391,7 +8239,6 @@ FUNC is obtained from (`lispy--insert-or-call' DEF PLIST)."
                         (end-of-line))))
     (lispy-define-key map "n" 'lispy-new-copy)
     (lispy-define-key map "b" 'lispy-back)
-    (lispy-define-key map "B" 'lispy-ediff-regions)
     (lispy-define-key map "x" 'lispy-x)
     (lispy-define-key map "-" 'lispy-ace-subword)
     (lispy-define-key map "." 'lispy-repeat)
