@@ -136,8 +136,6 @@
   (require 'org)
   (require 'iedit)
   (require 'eldoc)
-  (require 'ediff)
-  (require 'ediff-util)
   (require 'semantic)
   (require 'semantic/db))
 (require 'mode-local)
@@ -149,7 +147,6 @@
 (require 'avy)
 (require 'newcomment)
 (require 'lispy-inline)
-(setq iedit-toggle-key-default nil)
 (require 'delsel)
 (require 'pcase)
 (require 'hydra)
@@ -208,12 +205,6 @@ the first eval, and to major-mode on the second eval."
   "If t, lispy will display some messages on error state.
 These messages are similar to \"Beginning of buffer\" error for
 `backward-char' and can safely be ignored."
-  :type 'boolean
-  :group 'lispy)
-
-(defcustom lispy-verbose-verbs t
-  "If t, verbs produced by `lispy-defverb' will have a hint in the echo area.
-The hint will consist of the possible nouns that apply to the verb."
   :type 'boolean
   :group 'lispy)
 
@@ -282,9 +273,6 @@ The hint will consist of the possible nouns that apply to the verb."
   :group 'lispy-faces)
 
 (defvar lispy-mode-map (make-sparse-keymap))
-
-(defvar lispy-known-verbs nil
-  "List of registered verbs.")
 
 (defvar lispy-ignore-whitespace nil
   "When set to t, function `lispy-right' will not clean up whitespace.")
@@ -563,71 +551,6 @@ Otherwise return the amount of times executed."
 (defvar lispy-site-directory (file-name-directory
                               load-file-name)
   "The directory where all of the lispy files are located.")
-
-;;* Verb related
-(defun lispy-disable-verbs-except (verb)
-  "Disable all verbs except VERB."
-  (mapc
-   (lambda (v) (funcall v -1))
-   (remq verb lispy-known-verbs)))
-
-(defun lispy-quit ()
-  "Remove modifiers."
-  (interactive)
-  (lispy-disable-verbs-except nil))
-
-(defmacro lispy-defverb (name grammar)
-  "Define the verb NAME.
-GRAMMAR is a list of nouns that work with this verb."
-  (let* ((sym (intern (format "lispy-%s-mode" name)))
-         (keymap (intern (format "lispy-%s-mode-map" name)))
-         (doc (format "%s verb.\n\n \\{lispy-%s-mode-map}"
-                      (capitalize name) name))
-         (lighter (format " [%s]" name))
-         (verb (intern (format "lispy-%s-verb" name)))
-         (msg (format "[%s]: %s" name
-                      (mapconcat #'car grammar " "))))
-    `(progn
-       (defvar ,sym nil
-         ,(format "Non-nil if Lispy-%s mode is enabled.
-Use the command `%s' to change this variable."
-                  (capitalize name)
-                  sym))
-       (make-variable-buffer-local ',sym)
-       (defvar ,keymap (make-sparse-keymap))
-       (defun ,sym (&optional arg)
-         ,doc
-         (interactive (list (or current-prefix-arg 'toggle)))
-         (let ((last-message (current-message)))
-           (setq ,sym (if (eq arg 'toggle)
-                          (not ,sym)
-                        (> (prefix-numeric-value arg)
-                           0)))
-           (cond (,sym (lispy-disable-verbs-except ',sym))
-                 (t nil))
-           (if (called-interactively-p 'any)
-               (unless (and (current-message)
-                            (not (equal last-message (current-message))))
-                 (if ,sym
-                     (when lispy-verbose-verbs
-                       (message ,msg))
-                   (message "")))))
-         (force-mode-line-update))
-       (mapc (lambda (x)
-               (lispy-define-key
-                   ,keymap
-                   (car x) (cadr x)
-                 :disable ',sym))
-             ',grammar)
-       (unless (memq ',sym lispy-known-verbs)
-         (push ',sym lispy-known-verbs))
-       (defun ,verb ()
-         (interactive)
-         (if (bound-and-true-p ,sym)
-             (,sym -1)
-           (,sym 1)))
-       (with-no-warnings
-         (add-minor-mode ',sym ,lighter ,keymap nil nil)))))
 
 ;;* Globals: navigation
 (defsubst lispy-right-p ()
@@ -4924,8 +4847,6 @@ Sexp is obtained by exiting the list ARG times."
           (lispy--ensure-visible))
       (lispy-complain "This outline has no children"))))
 
-(declare-function ediff-regions-internal "ediff")
-
 (declare-function iedit-regexp-quote "iedit")
 (declare-function iedit-start "iedit")
 
@@ -5300,110 +5221,6 @@ Macro used may be customized in `lispy-thread-last-macro', which see."
    (lispy-flow 1)
    (lispy-raise 1)))
 
-;;* Locals: multiple cursors
-(declare-function mc/create-fake-cursor-at-point "ext:multiple-cursors-core")
-(declare-function multiple-cursors-mode "ext:multiple-cursors-core")
-(declare-function mc/all-fake-cursors "ext:multiple-cursors-core")
-(declare-function mc/maybe-multiple-cursors-mode "ext:multiple-cursors-core")
-(declare-function mc/mark-lines "ext:mc-mark-more")
-(declare-function mc/remove-fake-cursors "ext:multiple-cursors-core")
-
-(defun lispy-cursor-down (arg)
-  "Add ARG cursors using `lispy-down'."
-  (interactive "p")
-  (require 'multiple-cursors)
-  (if (and (mc/all-fake-cursors)
-           (not (eq last-command
-                    'lispy-cursor-down)))
-      (progn
-        (deactivate-mark)
-        (mc/remove-fake-cursors))
-    (if (lispy-left-p)
-        (lispy-dotimes arg
-          (mc/create-fake-cursor-at-point)
-          (cl-loop do (lispy-down 1)
-             while (mc/all-fake-cursors (point) (1+ (point)))))
-      (mc/mark-lines arg 'forwards))
-    (mc/maybe-multiple-cursors-mode)))
-
-(eval-after-load 'multiple-cursors
-  '(defadvice mc/execute-command-for-all-fake-cursors
-    (around lispy-other-mode-mc (cmd) activate)
-    (unless (and (eq cmd 'special-lispy-other-mode)
-                 (or (lispy-left-p)
-                     (lispy-right-p)
-                     (region-active-p)))
-      ad-do-it)))
-
-(defun lispy-cursor-ace ()
-  "Add a cursor at a visually selected paren.
-Currently, only one cursor can be added with local binding.
-Any amount can be added with a global binding."
-  (interactive)
-  (require 'multiple-cursors)
-  (mc/create-fake-cursor-at-point)
-  (lispy--avy-do
-   "("
-   (cons (window-start) (window-end))
-   (lambda () (not (lispy--in-string-or-comment-p)))
-   lispy-avy-style-paren)
-  (mc/maybe-multiple-cursors-mode))
-
-;;* Locals: ediff
-(defun lispy-store-region-and-buffer ()
-  "Store current buffer and `lispy--bounds-dwim'."
-  (interactive)
-  (put 'lispy-store-bounds 'buffer (current-buffer))
-  (put 'lispy-store-bounds 'region (lispy--bounds-dwim)))
-
-(defun lispy--vertical-splitp ()
-  "Return nil if the frame isn't two vertical windows.
-In case it is, return the left window."
-  (let ((windows (window-list)))
-    (when (= (length windows) 2)
-      (let ((wnd1 (car windows))
-            (wnd2 (cadr windows)))
-        (when (= (window-pixel-top wnd1)
-                 (window-pixel-top wnd2))
-          (if (< (window-pixel-left wnd1)
-                 (window-pixel-left wnd2))
-              wnd1
-            wnd2))))))
-
-(defun lispy--ediff-regions (bnd1 bnd2 &optional buf1 buf2 desc1 desc2)
-  (interactive)
-  (let ((wnd (current-window-configuration))
-        (e1 (lispy--make-ediff-buffer
-             (or buf1 (current-buffer)) (or desc1 "-A-")
-             bnd1))
-        (e2 (lispy--make-ediff-buffer
-             (or buf2 (current-buffer)) (or desc2 "-B-")
-             bnd2)))
-    (require 'ediff)
-    (apply #'ediff-regions-internal
-           `(,@(if (equal (selected-window)
-                          (lispy--vertical-splitp))
-                   (append e1 e2)
-                 (append e2 e1))
-               nil ediff-regions-linewise nil nil))
-    (add-hook 'ediff-after-quit-hook-internal
-              `(lambda ()
-                 (setq ediff-after-quit-hook-internal nil)
-                 (set-window-configuration ,wnd)))))
-
-(defun lispy-ediff-regions ()
-  "Comparable to `ediff-regions-linewise'.
-First region and buffer come from `lispy-store-region-and-buffer'
-Second region and buffer are the current ones."
-  (interactive)
-  (if (null (get 'lispy-store-bounds 'buffer))
-      (error "No bounds stored: call `lispy-store-region-and-buffer' for this")
-    (lispy--ediff-regions
-     (lispy--bounds-dwim)
-     (get 'lispy-store-bounds 'region)
-     (current-buffer)
-     (get 'lispy-store-bounds 'buffer))))
-
 ;;* Locals: marking
 (defun lispy-mark-right (arg)
   "Go right ARG times and mark."
@@ -5689,7 +5506,6 @@ An equivalent of `cl-destructuring-bind'."
   ("j" lispy-debug-step-in "debug step in")
   ("k" lispy-extract-block "extract block")
   ("l" lispy-to-lambda "to lambda")
-  ("m" lispy-cursor-ace "multi cursor")
   ("n" lispy-cd)
   ;; ("o" nil)
   ("p" lispy-set-python-process "process")
@@ -5702,7 +5518,6 @@ An equivalent of `cl-destructuring-bind'."
   ;; ("x" nil)
   ;; ("y" nil)
   ;; ("z" nil)
-  ("B" lispy-store-region-and-buffer "store list bounds")
   ("R" lispy-reverse "reverse")
   (">" lispy-toggle-thread-last "toggle last-threaded form")
   ("" lispy-x-more-verbosity :exit nil)
@@ -6699,8 +6514,6 @@ so that no other packages disturb the match data."
      (org-defkey . 3)
      ;; use-package specific
      (use-package . 1)
-     ;; lispy-specific
-     (lispy-defverb . 1)
      ;; misc
      (defhydra . 1)))
   "Alist of tag arities for supported modes.")
@@ -8697,7 +8510,7 @@ If `lispy-safe-paste' is non-nil, any unmatched delimiters will be added to it."
 (defvar mc/cmds-to-run-for-all nil)
 (defvar mc/cmds-to-run-once nil)
 (mapc (lambda (x) (add-to-list 'mc/cmds-to-run-once x))
-      '(lispy-cursor-down))
+      '())
 (mapc (lambda (x) (add-to-list 'mc/cmds-to-run-for-all x))
       '(lispy-parens lispy-brackets lispy-braces lispy-quotes lispy-kill lispy-delete))
 
@@ -8813,7 +8626,6 @@ FUNC is obtained from (`lispy--insert-or-call' DEF PLIST)."
 (defvar lispy-mode-map-c-digits
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "C-3") 'lispy-right)
-    (define-key map (kbd "C-7") 'lispy-cursor-down)
     (define-key map (kbd "C-8") 'lispy-parens-down)
     (define-key map (kbd "C-9") 'lispy-out-forward-newline)
     map))
