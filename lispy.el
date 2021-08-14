@@ -467,10 +467,6 @@ Otherwise return the amount of times executed."
         (nthcdr (1- ,n) (prog1 ,lst (setq ,lst (nthcdr ,n ,lst))))
         nil))))
 
-(defvar lispy-site-directory (file-name-directory
-                              load-file-name)
-  "The directory where all of the lispy files are located.")
-
 ;;* Globals: navigation
 (defsubst lispy-right-p ()
   "Return t if after variable `lispy-right'."
@@ -840,48 +836,6 @@ If position isn't special, move to previous or error."
           (narrow-to-region beg end)
           (set-marker beg nil)
           (set-marker end nil))))))
-
-(defun lispy-knight-down ()
-  "Make a knight-like move: down and right."
-  (interactive)
-  (cond ((lispy-right-p)
-         (lispy-different))
-        ((lispy-left-p))
-        (t (lispy-backward 1)))
-  (let ((pt (point))
-        (bnd (save-excursion
-               (lispy-beginning-of-defun)
-               (lispy--bounds-list))))
-    (catch 'done
-      (while t
-        (forward-line)
-        (cond ((>= (point) (cdr bnd))
-               (goto-char pt)
-               (throw 'done nil))
-              ((looking-at (concat "\\s-*" lispy-left))
-               (goto-char (1- (match-end 0)))
-               (throw 'done t)))))))
-
-(defun lispy-knight-up ()
-  "Make a knight-like move: up and right."
-  (interactive)
-  (cond ((lispy-right-p)
-         (lispy-different))
-        ((lispy-left-p))
-        (t (lispy-backward 1)))
-  (let ((pt (point))
-        (bnd (save-excursion
-               (lispy-beginning-of-defun)
-               (lispy--bounds-list))))
-    (catch 'done
-      (while t
-        (beginning-of-line 0)
-        (cond ((< (point) (car bnd))
-               (goto-char pt)
-               (throw 'done nil))
-              ((looking-at (concat "\\s-*" lispy-left))
-               (goto-char (1- (match-end 0)))
-               (throw 'done t)))))))
 
 (defun lispy-different ()
   "Switch to the different side of current sexp."
