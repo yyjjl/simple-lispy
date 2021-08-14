@@ -141,7 +141,6 @@
 (require 'mode-local)
 (require 'lispy-tags)
 (require 'help-fns)
-(require 'edebug)
 (require 'etags)
 (require 'outline)
 (require 'avy)
@@ -1804,9 +1803,7 @@ If jammed between parens, \"(|(\" unjam: \"(| (\". If after an opening delimiter
 and before a space (after wrapping a sexp, for example), do the opposite and
 delete the extra space, \"(| foo)\" to \"(|foo)\"."
   (interactive "p")
-  (cond ((bound-and-true-p edebug-active)
-         (edebug-step-mode))
-        ((region-active-p)
+  (cond ((region-active-p)
          (goto-char (region-end))
          (deactivate-mark)
          (insert " "))
@@ -5291,159 +5288,7 @@ Macro used may be customized in `lispy-thread-last-macro', which see."
                (lispy--mark bnd-2)
              (lispy-complain "can't descend further"))))))
 
-;;* Locals: edebug
-(declare-function lispy--clojure-debug-quit "le-clojure")
-(defun lispy-edebug-stop ()
-  "Stop edebugging, while saving current function arguments."
-  (interactive)
-  (cond ((memq major-mode lispy-elisp-modes)
-         (if (bound-and-true-p edebug-active)
-             (save-excursion
-               (lispy-left 99)
-               (if (looking-at
-                    "(\\(?:cl-\\)?def\\(?:un\\|macro\\)")
-                   (progn
-                     (goto-char (match-end 0))
-                     (search-forward "(")
-                     (backward-char 1)
-                     (forward-sexp 1)
-                     (let ((sexps
-                            (mapcar
-                             (lambda (x!)
-                               (when (consp x!)
-                                 (setq x! (car x!)))
-                               (cons x!
-                                     (let ((expr x!))
-                                       (edebug-eval expr))))
-                             (mapcar (lambda (x)
-                                       (if (consp x)
-                                           (car x)
-                                         x))
-                                     (delq '&allow-other-keys
-                                           (delq '&key
-                                                 (delq '&optional
-                                                       (delq '&rest
-                                                             (lispy--preceding-sexp))))))))
-                           (wnd (current-window-configuration))
-                           (pt (point)))
-                       (run-with-timer
-                        0 nil
-                        `(lambda ()
-                           (mapc (lambda (x!) (set (car x!) (cdr x!))) ',sexps)
-                           (set-window-configuration ,wnd)
-                           (goto-char ,pt)))
-                       (top-level)))))
-           (self-insert-command 1)))
-        ((eq major-mode 'clojure-mode)
-         (lispy--clojure-debug-quit))))
-
-(declare-function cider-debug-defun-at-point "ext:cider-debug")
-(declare-function lispy-python-set-breakpoint "le-python")
-
-(defun lispy-edebug (arg)
-  "Start/stop edebug of current thing depending on ARG.
-ARG is 1: `edebug-defun' on this function.
-ARG is 2: `eval-defun' on this function.
-ARG is 3: `edebug-defun' on the function from this sexp.
-ARG is 4: `eval-defun' on the function from this sexp."
-  (interactive "p")
-  (cond ((= arg 1)
-         (cond ((memq major-mode lispy-elisp-modes)
-                (edebug-defun))
-               ((eq major-mode 'clojure-mode)
-                (cider-debug-defun-at-point))
-               ((eq major-mode 'python-mode)
-                (lispy-python-set-breakpoint))
-               (t
-                (error "Can't debug for %S" major-mode))))
-        ((= arg 2)
-         (eval-defun nil))
-        (t
-         (let* ((expr (lispy--read (lispy--string-dwim)))
-                (fun (car expr)))
-           (if (fboundp fun)
-               (let* ((fnd (find-definition-noselect fun nil))
-                      (buf (car fnd))
-                      (pt (cdr fnd)))
-                 (with-current-buffer buf
-                   (goto-char pt)
-                   (cond ((= arg 3)
-                          (edebug-defun))
-                         ((= arg 4)
-                          (eval-defun nil))
-                         (t
-                          (error "Argument = %s isn't supported" arg)))))
-             (error "%s isn't bound" fun))))))
-
-(declare-function lispy--clojure-debug-step-in "le-clojure")
-(declare-function lispy--python-debug-step-in "le-python")
-(declare-function lispy-eval-python-bnd "le-python")
-(declare-function lispy-eval-python-str "le-python")
-(declare-function lispy-set-python-process "le-python")
-
-(defun lispy-debug-step-in ()
-  "Eval current function arguments and jump to definition."
-  (interactive)
-  (cond ((memq major-mode lispy-elisp-modes)
-         (let* ((ldsi-sxp (lispy--setq-expression))
-                (ldsi-fun (car ldsi-sxp)))
-           (cond
-             ((memq ldsi-fun '(mapcar mapc mapcan
-                               cl-remove-if cl-remove-if-not
-                               cl-find-if cl-find-if-not
-                               cl-some cl-every cl-any cl-notany))
-              (let ((fn (nth 1 ldsi-sxp))
-                    (lst (nth 2 ldsi-sxp)))
-                (when (eq (car-safe fn) 'lambda)
-                  (set (car (cadr fn)) (car (eval lst)))
-                  (lispy-flow 2))))
-             ((or (functionp ldsi-fun)
-                  (macrop ldsi-fun))
-              (when (eq ldsi-fun 'funcall)
-                (setq ldsi-fun (eval (cadr ldsi-sxp)))
-                (setq ldsi-sxp (cons ldsi-fun (cddr ldsi-sxp))))
-              (let ((ldsi-args
-                     (copy-sequence
-                      (help-function-arglist
-                       (if (ad-is-advised ldsi-fun)
-                           (ad-get-orig-definition ldsi-fun)
-                         ldsi-fun)
-                       t)))
-                    (ldsi-vals (cdr ldsi-sxp))
-                    ldsi-arg
-                    ldsi-val)
-                (catch 'done
-                  (while (setq ldsi-arg (pop ldsi-args))
-                    (cond ((eq ldsi-arg '&optional)
-                           (setq ldsi-arg (pop ldsi-args))
-                           (set ldsi-arg (eval (pop ldsi-vals))))
-                          ((eq ldsi-arg '&rest)
-                           (setq ldsi-arg (pop ldsi-args))
-                           (set ldsi-arg
-                                (if (functionp ldsi-fun)
-                                    (mapcar #'eval ldsi-vals)
-                                  ldsi-vals))
-                           (throw 'done t))
-                          (t
-                           (setq ldsi-val (pop ldsi-vals))
-                           (set ldsi-arg
-                                (if (functionp ldsi-fun)
-                                    (eval ldsi-val)
-                                  ldsi-val))))))
-                (lispy-goto-symbol ldsi-fun)))
-             (t
-              (lispy-complain
-               (format "%S isn't a function" ldsi-fun))))))
-        ((eq major-mode 'clojure-mode)
-         (require 'le-clojure)
-         (lispy--clojure-debug-step-in))
-        ((eq major-mode 'python-mode)
-         (require 'le-python)
-         (lispy--python-debug-step-in))
-        (t
-         (lispy-complain
-          (format "%S isn't currently supported" major-mode)))))
-
+;;* Locals: lispy-destructuring-setq
 (defvar cl--bind-lets)
 (defvar cl--bind-forms)
 (defvar cl--bind-defs)
@@ -5497,7 +5342,6 @@ An equivalent of `cl-destructuring-bind'."
   ("C" lispy-cleanup "cleanup")
   ("d" lispy-to-defun "to defun")
   ("D" lispy-extract-defun "extract defun")
-  ("e" lispy-edebug "edebug")
   ("f" lispy-flatten "flatten")
   ("F" lispy-let-flatten "let-flatten")
   ;; ("g" nil)
@@ -5507,8 +5351,6 @@ An equivalent of `cl-destructuring-bind'."
   ("k" lispy-extract-block "extract block")
   ("l" lispy-to-lambda "to lambda")
   ("n" lispy-cd)
-  ;; ("o" nil)
-  ("p" lispy-set-python-process "process")
   ;; ("q" nil)
   ("r" lispy-eval-and-replace "eval and replace")
   ("s" save-buffer)
@@ -8072,32 +7914,6 @@ Use only the part bounded by BND."
       (setq ediff-temp-indirect-buffer t)
       (list (current-buffer) (point-min) (point-max)))))
 
-(defvar lispy--edebug-command nil
-  "Command that corresponds to currently pressed key.")
-
-(defvar lispy--cider-debug-command nil
-  "Command that corresponds to currently pressed key.")
-
-(defun lispy--edebug-commandp ()
-  "Return true if `this-command-keys' should be forwarded to edebug."
-  (when (and (bound-and-true-p edebug-active)
-             (not (minibufferp))
-             (= 1 (length (this-command-keys))))
-    (let ((char (aref (this-command-keys) 0)))
-      (setq lispy--edebug-command
-            (cdr (or (assq char edebug-mode-map)
-                     (assq char global-edebug-map)))))))
-
-(defvar cider--debug-mode-map)
-
-(defun lispy--cider-debug-commandp ()
-  "Return true if `this-command-keys' should be forwarded to cider-debug."
-  (when (and (bound-and-true-p cider--debug-mode)
-             (= 1 (length (this-command-keys))))
-    (let ((char (aref (this-command-keys) 0)))
-      (setq lispy--cider-debug-command
-            (cdr (assq char cider--debug-mode-map))))))
-
 (defvar macrostep-keymap)
 (defvar lispy--compat-cmd nil
   "Store the looked up compat command.")
@@ -8125,21 +7941,6 @@ PLIST currently accepts:
                       (cdr override))
                      (t
                       (error "Unexpected :override %S" override)))
-
-             ,@(when (memq 'edebug lispy-compat)
-                     '(((lispy--edebug-commandp)
-                        (call-interactively
-                         lispy--edebug-command))))
-
-             ,@(when (memq 'cider lispy-compat)
-                 '(((lispy--cider-debug-commandp)
-                    (call-interactively
-                     lispy--cider-debug-command))))
-
-             ,@(when (memq 'god-mode lispy-compat)
-                     '(((and (or (bound-and-true-p god-global-mode)
-                                 (bound-and-true-p god-local-mode)))
-                        (call-interactively 'god-mode-self-insert))))
 
              ,@(when (memq 'macrostep lispy-compat)
                      '(((and (bound-and-true-p macrostep-mode)
@@ -8592,7 +8393,6 @@ FUNC is obtained from (`lispy--insert-or-call' DEF PLIST)."
     (lispy-define-key map "b" 'lispy-back)
     (lispy-define-key map "B" 'lispy-ediff-regions)
     (lispy-define-key map "x" 'lispy-x)
-    (lispy-define-key map "Z" 'lispy-edebug-stop)
     (lispy-define-key map "-" 'lispy-ace-subword)
     (lispy-define-key map "." 'lispy-repeat)
     (lispy-define-key map "~" 'lispy-tilde)
