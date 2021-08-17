@@ -6362,8 +6362,8 @@ FUNC is obtained from (`lispy--insert-or-call' DEF PLIST)."
     (define-key map (kbd "C-y") 'lispy-yank)
     (define-key map (kbd "C-d") 'lispy-delete)
     (define-key map (kbd "DEL") 'lispy-delete-backward)
-    (define-key map (kbd "M-k") 'lispy-kill-sentence)
-    (define-key map (kbd "M-m") 'lispy-mark-symbol)
+    ;; (define-key map (kbd "M-k") 'lispy-kill-sentence)
+    ;; (define-key map (kbd "M-m") 'lispy-mark-symbol)
     (define-key map (kbd "C-,") 'lispy-kill-at-point)
     (define-key map (kbd "C-M-,") 'lispy-mark)
     ;; pairs
